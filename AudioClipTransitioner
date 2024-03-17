@@ -1,165 +1,169 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEditor;
-using UnityEditor.Timeline.Actions;
 using UnityEngine;
-using UnityEngine.UIElements;
+using System.Collections;
 
 [RequireComponent(typeof(AudioSource))]
-public class AudioClipTransitioner : MonoBehaviour
+public class MusicInfiniteLoopTool : MonoBehaviour
 {
     AudioSource source;
 
     [Header("Triggers")]
-    public bool StartsAtStart;
-    public bool StartNow;
+    public bool startsAtStart;
+    public bool startNow;
 
-    //clips
     [Header("Audio Clips")]
     [SerializeField] AudioClip clipA;
     [SerializeField] AudioClip clipB;
 
-    // track time variables 
     [Header("Volume and Delay")]
-    [Range(0,1)]
+    [Range(0, 1)]
     [SerializeField] float maxVolume = 1;
 
-    //delays
     [Tooltip("Time is in Seconds")]
-    [SerializeField] float DelayTrack1Time = 2;
+    [SerializeField] float delayTrack1Time = 2;
     [Tooltip("Time is in Seconds")]
-    [SerializeField] float DelayTrack2Time = 2;
-    [SerializeField] int TimeToStartFade = 1;
+    [SerializeField] float delayTrack2Time = 2;
+    [SerializeField] float timeToStartFade = 4;
 
     [Header("Fade")]
-    // fade variables 
-
     [SerializeField] bool fadeInEnabled;
     [SerializeField] bool fadeOutEnabled;
+    [Range(0.1f, 3)]
+    [SerializeField] float fadeOutSpeed = .3f;
+    [Range(0.1f, 3)]
+    [SerializeField] float fadeInSpeed = .3f;
 
-    [Tooltip("Higher is Faster")]
-    [Range(0.1f,5)]
-    [SerializeField] float fadeOutSpeed = 2;
-
-
-    [Tooltip("Higher is Faster")]
-    [Range(0.1f,5)]
-    [SerializeField] float fadeInSpeed = 0.1f; 
-
-
-    // bools 
     bool isRunning;
-    bool fadingOut;
-    bool fadingIn;
-
-    // Track time
-    public int CurrentTrackTime;
-
+    float trackCount;
+    [SerializeField] int currentTrackTime;
 
     void Start()
     {
-        source = GetComponent<AudioSource>();
-        source.volume = maxVolume; 
-        if (StartsAtStart) { StartCoroutine(playTransitionClips()); }
-
-        //initialize 
-        CurrentTrackTime = 1;
-        
+        if (startsAtStart)
+            StartMusic();
+        else if (startNow)
+            InitializeAudioSource();
     }
 
-    // Update is called once per frame
     void Update()
     {
-        // fade in and out 
-        if (fadingOut) { fadeOut(); }
-        if (fadingIn) { fadeIn(); }
-
-        if (StartNow && !isRunning)
+        if (source != null)
         {
-            StartCoroutine(playTransitionClips());
+            UpdateTrackTime();
+
+            if (source.clip == clipA && fadeInEnabled && source.isPlaying && currentTrackTime <= timeToStartFade)
+                StartCoroutine(FadeOut());
         }
-
-        // Adjust time if track is playing 
-        if (source.isPlaying)
-        {
-            float sourceTime = source.clip.length - source.time;
-            CurrentTrackTime = Mathf.RoundToInt(sourceTime);
-        }
-
-       
-
     }
 
-    
-    IEnumerator playTransitionClips()
+
+    void StartMusic()
     {
-        //set control to stop double plays 
-        isRunning = true; 
-        //delay start
-        yield return new WaitForSecondsRealtime(1);
-        yield return new WaitForSecondsRealtime(DelayTrack1Time);
-        
-        //Set track A
-        print("Playing A");
+        StartCoroutine(InitializeAudioSource());
+    }
 
-        // play 
-        source.clip = clipA;
-        source.Play();
+    IEnumerator InitializeAudioSource()
+    {
+        yield return new WaitForSeconds(0.1f); // Adjust the delay time as needed
+        source = GetComponent<AudioSource>();
+        source.volume = maxVolume;
 
-        // Wait until the track time has reached the time of desired fade  
-        yield return new WaitUntil(() => CurrentTrackTime <= TimeToStartFade);
+        isRunning = true;
+        yield return StartCoroutine(PlayTransitionClips());
+        isRunning = false;
+    }
 
-        if (fadeOutEnabled) 
+    void UpdateTrackTime()
+    {
+        currentTrackTime = Mathf.RoundToInt(trackCount);
+    }
+
+    IEnumerator PlayTransitionClips()
+    {
+        yield return new WaitForSecondsRealtime(delayTrack1Time);
+        print("Playing First Track ");
+
+        PlayClip(clipA, false);
+
+        // Get the length of clipA
+        float clipALength = clipA.length;
+
+        // Start fading out clipA if fade-out is enabled
+        if (fadeOutEnabled)
         {
-            fadingOut = true;
+            float fadeStartTime = Mathf.Max(0, clipALength - timeToStartFade);
+            StartCoroutine(FadeOut(fadeStartTime));
         }
 
+        // Wait for the first track to finish playing
+        yield return new WaitForSecondsRealtime(clipALength);
 
-        // wait for the track to finish 
-        yield return new WaitUntil(() => CurrentTrackTime == 0);
-
-        fadingOut = false;
+        // Stop the first track
         source.Stop();
-     
-        // delay next track 
-        yield return new WaitForSecondsRealtime(DelayTrack2Time);
-        
-        // play next track 
-        print("Playing B");
-      
-        source.volume = 0;
-        source.clip = clipB;
-        source.loop = true;
-        source.Play();
+
+        // Delay before starting the next track
+        yield return new WaitForSecondsRealtime(delayTrack2Time);
+        print("Playing Looped Track ");
+        // Start the next track and fade it in
+        PlayClip(clipB, true);
 
         if (fadeInEnabled)
+            yield return StartCoroutine(FadeIn());
+    }
+
+    IEnumerator FadeOut(float fadeStartTime)
+    {
+        // Wait until fade start time
+        yield return new WaitForSecondsRealtime(fadeStartTime);
+
+        // Perform the fade-out
+        float currentTime = 0;
+        while (currentTime < timeToStartFade)
         {
-            fadingIn = true;
+            float t = currentTime / timeToStartFade;
+            source.volume = Mathf.Lerp(maxVolume, 0, t);
+            currentTime += Time.deltaTime;
+            yield return null;
         }
 
-        yield return new WaitForSecondsRealtime(10);
-
-        yield break; 
-
-
+        // Ensure volume is 0 at the end
+        source.volume = 0;
     }
 
-
-    void fadeOut()
+    void PlayClip(AudioClip clip, bool loop)
     {
-        source.volume = Mathf.Lerp(source.volume, 0, fadeOutSpeed * Time.deltaTime);
+        source.clip = clip;
+        source.loop = loop;
+        StartCoroutine(TrackCountDown());
+        source.Play();
+        Debug.Log("Playing Clip: " + clip.name);
     }
 
-
-    void fadeIn()
+    IEnumerator TrackCountDown()
     {
-        if (source.volume < maxVolume)
+        trackCount = source.clip.length;
+
+        while (currentTrackTime > 0)
         {
-            source.volume = Mathf.MoveTowards(source.volume, maxVolume, fadeInSpeed * Time.deltaTime);
+            yield return new WaitForSecondsRealtime(1);
+            currentTrackTime--;
         }
     }
 
+    IEnumerator FadeOut()
+    {
+        while (source.volume > 0)
+        {
+            source.volume -= fadeOutSpeed * Time.deltaTime;
+            yield return null;
+        }
+    }
 
+    IEnumerator FadeIn()
+    {
+        while (source.volume < maxVolume)
+        {
+            source.volume += fadeInSpeed * Time.deltaTime;
+            yield return null;
+        }
+    }
 }
-
-
