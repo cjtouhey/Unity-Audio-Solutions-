@@ -1,0 +1,169 @@
+using UnityEngine;
+using System.Collections;
+
+[RequireComponent(typeof(AudioSource))]
+public class MusicInfiniteLoopTool : MonoBehaviour
+{
+    AudioSource source;
+
+    [Header("Triggers")]
+    public bool startsAtStart;
+    public bool startNow;
+
+    [Header("Audio Clips")]
+    [SerializeField] AudioClip clipA;
+    [SerializeField] AudioClip clipB;
+
+    [Header("Volume and Delay")]
+    [Range(0, 1)]
+    [SerializeField] float maxVolume = 1;
+
+    [Tooltip("Time is in Seconds")]
+    [SerializeField] float delayTrack1Time = 2;
+    [Tooltip("Time is in Seconds")]
+    [SerializeField] float delayTrack2Time = 2;
+    [SerializeField] float timeToStartFade = 4;
+
+    [Header("Fade")]
+    [SerializeField] bool fadeInEnabled;
+    [SerializeField] bool fadeOutEnabled;
+    [Range(0.1f, 3)]
+    [SerializeField] float fadeOutSpeed = .3f;
+    [Range(0.1f, 3)]
+    [SerializeField] float fadeInSpeed = .3f;
+
+    bool isRunning;
+    float trackCount;
+    [SerializeField] int currentTrackTime;
+
+    void Start()
+    {
+        if (startsAtStart)
+            StartMusic();
+        else if (startNow)
+            InitializeAudioSource();
+    }
+
+    void Update()
+    {
+        if (source != null)
+        {
+            UpdateTrackTime();
+
+            if (source.clip == clipA && fadeInEnabled && source.isPlaying && currentTrackTime <= timeToStartFade)
+                StartCoroutine(FadeOut());
+        }
+    }
+
+
+    void StartMusic()
+    {
+        StartCoroutine(InitializeAudioSource());
+    }
+
+    IEnumerator InitializeAudioSource()
+    {
+        yield return new WaitForSeconds(0.1f); // Adjust the delay time as needed
+        source = GetComponent<AudioSource>();
+        source.volume = maxVolume;
+
+        isRunning = true;
+        yield return StartCoroutine(PlayTransitionClips());
+        isRunning = false;
+    }
+
+    void UpdateTrackTime()
+    {
+        currentTrackTime = Mathf.RoundToInt(trackCount);
+    }
+
+    IEnumerator PlayTransitionClips()
+    {
+        yield return new WaitForSecondsRealtime(delayTrack1Time);
+        print("Playing First Track ");
+
+        PlayClip(clipA, false);
+
+        // Get the length of clipA
+        float clipALength = clipA.length;
+
+        // Start fading out clipA if fade-out is enabled
+        if (fadeOutEnabled)
+        {
+            float fadeStartTime = Mathf.Max(0, clipALength - timeToStartFade);
+            StartCoroutine(FadeOut(fadeStartTime));
+        }
+
+        // Wait for the first track to finish playing
+        yield return new WaitForSecondsRealtime(clipALength);
+
+        // Stop the first track
+        source.Stop();
+
+        // Delay before starting the next track
+        yield return new WaitForSecondsRealtime(delayTrack2Time);
+        print("Playing Looped Track ");
+        // Start the next track and fade it in
+        PlayClip(clipB, true);
+
+        if (fadeInEnabled)
+            yield return StartCoroutine(FadeIn());
+    }
+
+    IEnumerator FadeOut(float fadeStartTime)
+    {
+        // Wait until fade start time
+        yield return new WaitForSecondsRealtime(fadeStartTime);
+
+        // Perform the fade-out
+        float currentTime = 0;
+        while (currentTime < timeToStartFade)
+        {
+            float t = currentTime / timeToStartFade;
+            source.volume = Mathf.Lerp(maxVolume, 0, t);
+            currentTime += Time.deltaTime;
+            yield return null;
+        }
+
+        // Ensure volume is 0 at the end
+        source.volume = 0;
+    }
+
+    void PlayClip(AudioClip clip, bool loop)
+    {
+        source.clip = clip;
+        source.loop = loop;
+        StartCoroutine(TrackCountDown());
+        source.Play();
+        Debug.Log("Playing Clip: " + clip.name);
+    }
+
+    IEnumerator TrackCountDown()
+    {
+        trackCount = source.clip.length;
+
+        while (currentTrackTime > 0)
+        {
+            yield return new WaitForSecondsRealtime(1);
+            currentTrackTime--;
+        }
+    }
+
+    IEnumerator FadeOut()
+    {
+        while (source.volume > 0)
+        {
+            source.volume -= fadeOutSpeed * Time.deltaTime;
+            yield return null;
+        }
+    }
+
+    IEnumerator FadeIn()
+    {
+        while (source.volume < maxVolume)
+        {
+            source.volume += fadeInSpeed * Time.deltaTime;
+            yield return null;
+        }
+    }
+}
